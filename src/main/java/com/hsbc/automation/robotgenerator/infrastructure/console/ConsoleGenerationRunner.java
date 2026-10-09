@@ -10,114 +10,208 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
-import com.hsbc.automation.robotgenerator.application.JenkinsEvidencePublicationService;
 import com.hsbc.automation.robotgenerator.application.RobotProjectGenerationService;
+import com.hsbc.automation.robotgenerator.application.JenkinsEvidencePublicationService;
 import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService.SyncMode;
 
 @Component
 public class ConsoleGenerationRunner implements CommandLineRunner {
+
     private final RobotProjectGenerationService generationService;
     private final RobotGitSyncService gitSyncService;
     private final boolean autoSyncEimGit;
     private final String gitRepoUrl;
     private final JenkinsEvidencePublicationService evidenceService;
 
-    public ConsoleGenerationRunner(RobotProjectGenerationService generationService, RobotGitSyncService gitSyncService) {
+    public ConsoleGenerationRunner(
+            RobotProjectGenerationService generationService,
+            RobotGitSyncService gitSyncService) {
         this(generationService, gitSyncService, false, "");
     }
-    public ConsoleGenerationRunner(RobotProjectGenerationService generationService, RobotGitSyncService gitSyncService,
-            boolean autoSyncEimGit, String gitRepoUrl) {
+
+    public ConsoleGenerationRunner(
+            RobotProjectGenerationService generationService,
+            RobotGitSyncService gitSyncService,
+            boolean autoSyncEimGit,
+            String gitRepoUrl) {
         this(generationService, gitSyncService, autoSyncEimGit, gitRepoUrl, null);
     }
+
     @Autowired
-    public ConsoleGenerationRunner(RobotProjectGenerationService generationService, RobotGitSyncService gitSyncService,
+    public ConsoleGenerationRunner(
+            RobotProjectGenerationService generationService,
+            RobotGitSyncService gitSyncService,
             @Value("${auto.sync.eim.git:false}") boolean autoSyncEimGit,
-            @Value("${git.repo.url:}") String gitRepoUrl, JenkinsEvidencePublicationService evidenceService) {
+            @Value("${git.repo.url:}") String gitRepoUrl,
+            JenkinsEvidencePublicationService evidenceService) {
         this.generationService = generationService;
         this.gitSyncService = gitSyncService;
         this.autoSyncEimGit = autoSyncEimGit;
         this.gitRepoUrl = gitRepoUrl;
         this.evidenceService = evidenceService;
     }
+
     @Override
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
-        System.out.println("Robot Framework Test Generator\n----------------------------------------");
+        System.out.println("Robot Framework Test Generator");
+        System.out.println("----------------------------------------");
+
         String eimId = prompt(scanner, "EIM ID");
         String projectName = prompt(scanner, "Project name");
         String baseUrl = prompt(scanner, "URL");
         String endpoint = prompt(scanner, "Endpoint (optional, press Enter for root)");
+
         GenerationRequest request;
-        try { request = new GenerationRequest(eimId, projectName, baseUrl, endpoint); }
-        catch (IllegalArgumentException exception) { System.out.println("Invalid input: " + exception.getMessage()); return; }
+        try {
+            request = new GenerationRequest(eimId, projectName, baseUrl, endpoint);
+        } catch (IllegalArgumentException exception) {
+            System.out.println("Invalid input: " + exception.getMessage());
+            return;
+        }
+
         Path generatedProject = generationService.generate(request);
         System.out.println("Generated successfully: " + generatedProject);
         String repositoryUrl = null;
-        if (confirm(scanner, "sync to git? y/n: ")) {
+        if (confirmGitSync(scanner)) {
             try {
-                repositoryUrl = autoSyncEimGit ? eimRepositoryUrl(request.getEimId()) : prompt(scanner, "GitHub repository URL");
+                repositoryUrl = autoSyncEimGit
+                        ? eimRepositoryUrl(request.getEimId())
+                        : prompt(scanner, "GitHub repository URL");
                 boolean changed = gitSyncService.sync(generatedProject, repositoryUrl,
                         candidates -> selectRepositoryProjectPath(scanner, candidates), () -> selectSyncMode(scanner));
-                System.out.println(changed ? "Git sync completed. Temporary clone deleted." : "No changes to sync. Temporary clone deleted.");
-            } catch (IOException | IllegalArgumentException exception) { System.out.println("Git sync failed: " + exception.getMessage()); }
+                System.out.println(changed
+                        ? "Git sync completed. Temporary clone deleted."
+                        : "No changes to sync. Temporary clone deleted.");
+            } catch (IOException | IllegalArgumentException exception) {
+                System.out.println("Git sync failed: " + exception.getMessage());
+            }
         }
-        if (confirm(scanner, "generate evidence via jenkins and upload to confluence? y/n: ")) {
+        if (confirmEvidence(scanner)) {
             try {
                 String buildUrl = prompt(scanner, "Completed Jenkins build URL");
-                if (repositoryUrl == null) repositoryUrl = autoSyncEimGit
-                        ? eimRepositoryUrl(request.getEimId()) : prompt(scanner, "GitHub repository URL for evidence");
-                if (evidenceService == null) throw new IllegalArgumentException("Evidence publication service is not configured.");
-                System.out.println("Evidence uploaded successfully: " + evidenceService.publish(request, buildUrl, repositoryUrl));
-            } catch (IOException | IllegalArgumentException exception) { System.out.println("Evidence upload failed: " + exception.getMessage()); }
-        }
-    }
-    private String eimRepositoryUrl(String eimId) {
-        String baseUrl = gitRepoUrl == null ? "" : gitRepoUrl.trim();
-        while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
-        if (baseUrl.isEmpty()) throw new IllegalArgumentException("git.repo.url is required when auto.sync.eim.git=true.");
-        if (eimId.matches("[^A-Za-z0-9_-]+") || "..".equals(eimId) || ".".equals(eimId))
-            throw new IllegalArgumentException("EIM ID must be a single repository name for automatic Git sync.");
-        return baseUrl + "/" + eimId;
-    }
-    private String selectRepositoryProjectPath(Scanner scanner, List<String> candidates) {
-        if (candidates.size() == 1) { System.out.println("Detected repository project path: " + candidates.get(0)); return candidates.get(0); }
-        if (!candidates.isEmpty()) {
-            System.out.println("Multiple Robot projects detected:");
-            for (int i = 0; i < candidates.size(); i++) System.out.println((i + 1) + ". " + candidates.get(i));
-            while (true) {
-                System.out.print("Select project (1-" + candidates.size() + ", 0=manual path): ");
-                if (!scanner.hasNextLine()) throw new IllegalArgumentException("Git sync cancelled: no project selected.");
-                String selection = scanner.nextLine().trim();
-                if ("0".equals(selection)) break;
-                for (int i = 0; i < candidates.size(); i++) if (String.valueOf(i + 1).equals(selection)) return candidates.get(i);
-                System.out.println("Please select a listed project number, or 0 for a manual path.");
+                if (repositoryUrl == null) {
+                    repositoryUrl = autoSyncEimGit
+                            ? eimRepositoryUrl(request.getEimId())
+                            : prompt(scanner, "GitHub repository URL for evidence");
+                }
+                if (evidenceService == null) {
+                    throw new IllegalArgumentException("Evidence publication service is not configured.");
+                }
+                String pageUrl = evidenceService.publish(request, buildUrl, repositoryUrl);
+                System.out.println("Evidence uploaded successfully: " + pageUrl);
+            } catch (IOException | IllegalArgumentException exception) {
+                System.out.println("Evidence upload failed: " + exception.getMessage());
             }
-        } else System.out.println("No existing Robot project structure detected.");
-        System.out.print("Repository project path (Enter for repository root): ");
-        if (!scanner.hasNextLine()) throw new IllegalArgumentException("Git sync cancelled: no repository project path supplied.");
-        return scanner.nextLine().trim();
-    }
-    private SyncMode selectSyncMode(Scanner scanner) {
-        while (true) {
-            System.out.print("Sync mode (1-auto sync/overwrite, 2=merge): ");
-            if (!scanner.hasNextLine()) throw new IllegalArgumentException("Git sync cancelled: no mode selected.");
-            String answer = scanner.nextLine().trim();
-            if ("1".equals(answer)) return SyncMode.OVERWRITE;
-            if ("2".equals(answer)) return SyncMode.MERGE;
-            System.out.println("Please enter 1 or 2.");
         }
     }
-    private boolean confirm(Scanner scanner, String label) {
+
+    private boolean confirmEvidence(Scanner scanner) {
         while (true) {
-            System.out.print(label);
-            if (!scanner.hasNextLine()) return false;
+            System.out.print("generate evidence via jenkins and upload to confluence? y/n: ");
+            if (!scanner.hasNextLine()) {
+                return false;
+            }
             String answer = scanner.nextLine().trim();
-            if ("y".equalsIgnoreCase(answer)) return true;
-            if ("n".equalsIgnoreCase(answer)) return false;
+            if ("y".equalsIgnoreCase(answer)) {
+                return true;
+            }
+            if ("n".equalsIgnoreCase(answer)) {
+                return false;
+            }
             System.out.println("Please enter y or n.");
         }
     }
-    private String prompt(Scanner scanner, String label) { System.out.print(label + ": "); return scanner.nextLine(); }
+
+    private String eimRepositoryUrl(String eimId) {
+        String baseUrl = gitRepoUrl != null ? gitRepoUrl.trim() : "";
+        while (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        if (baseUrl.isEmpty()) {
+            throw new IllegalArgumentException("git.repo.url is required when auto.sync.eim.git=true.");
+        }
+        if (eimId.matches("[^A-Za-z0-9_-]+") || "..".equals(eimId) || ".".equals(eimId)) {
+            throw new IllegalArgumentException("EIM ID must be a single repository name for automatic Git sync.");
+        }
+        return baseUrl + "/" + eimId;
+    }
+
+    private boolean confirmGitSync(Scanner scanner) {
+        while (true) {
+            System.out.print("sync to git? y/n: ");
+            if (!scanner.hasNextLine()) {
+                return false;
+            }
+            String answer = scanner.nextLine().trim();
+            if ("y".equalsIgnoreCase(answer)) {
+                return true;
+            }
+            if ("n".equalsIgnoreCase(answer)) {
+                return false;
+            }
+            System.out.println("Please enter y or n.");
+        }
+    }
+
+    private String selectRepositoryProjectPath(Scanner scanner, List<String> candidates) {
+        if (candidates.size() == 1) {
+            String detected = candidates.get(0);
+            System.out.println("Detected repository project path: " + detected);
+            return detected;
+        }
+        if (candidates.size() > 1) {
+            System.out.println("Multiple Robot projects detected:");
+            for (int index = 0; index < candidates.size(); index++) {
+                System.out.println((index + 1) + ". " + candidates.get(index));
+            }
+            while (true) {
+                System.out.print("Select project (1-" + candidates.size() + ", 0=manual path): ");
+                if (!scanner.hasNextLine()) {
+                    throw new IllegalArgumentException("Git sync cancelled: no project selected.");
+                }
+                String selection = scanner.nextLine().trim();
+                if ("0".equals(selection)) {
+                    break;
+                }
+                for (int index = 0; index < candidates.size(); index++) {
+                    if (String.valueOf(index + 1).equals(selection)) {
+                        return candidates.get(index);
+                    }
+                }
+                System.out.println("Please select a listed project number, or 0 for a manual path.");
+            }
+        } else {
+            System.out.println("No existing Robot project structure detected.");
+        }
+        System.out.print("Repository project path (Enter for repository root): ");
+        if (!scanner.hasNextLine()) {
+            throw new IllegalArgumentException("Git sync cancelled: no repository project path supplied.");
+        }
+        return scanner.nextLine().trim();
+    }
+
+    private SyncMode selectSyncMode(Scanner scanner) {
+        while (true) {
+            System.out.print("Sync mode (1-auto sync/overwrite, 2=merge): ");
+            if (!scanner.hasNextLine()) {
+                throw new IllegalArgumentException("Git sync cancelled: no mode selected.");
+            }
+            String answer = scanner.nextLine().trim();
+            if ("1".equals(answer)) {
+                return SyncMode.OVERWRITE;
+            }
+            if ("2".equals(answer)) {
+                return SyncMode.MERGE;
+            }
+            System.out.println("Please enter 1 or 2.");
+        }
+    }
+
+    private String prompt(Scanner scanner, String label) {
+        System.out.print(label + ": ");
+        return scanner.nextLine();
+    }
 }

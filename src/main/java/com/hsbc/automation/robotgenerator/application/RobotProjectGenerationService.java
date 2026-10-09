@@ -15,29 +15,48 @@ import com.hsbc.automation.robotgenerator.infrastructure.template.RobotTemplateR
 
 @Service
 public class RobotProjectGenerationService {
+
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
     private final RobotTemplateRenderer templateRenderer;
     private final RobotProjectWriter projectWriter;
     private final Clock clock;
 
     @Autowired
-    public RobotProjectGenerationService(RobotTemplateRenderer templateRenderer, RobotProjectWriter projectWriter) {
+    public RobotProjectGenerationService(
+            RobotTemplateRenderer templateRenderer,
+            RobotProjectWriter projectWriter) {
         this(templateRenderer, projectWriter, Clock.systemDefaultZone());
     }
-    public RobotProjectGenerationService(RobotTemplateRenderer templateRenderer, RobotProjectWriter projectWriter, Clock clock) {
+
+    public RobotProjectGenerationService(
+            RobotTemplateRenderer templateRenderer,
+            RobotProjectWriter projectWriter,
+            Clock clock) {
         this.templateRenderer = templateRenderer;
         this.projectWriter = projectWriter;
         this.clock = clock;
     }
+
     public Path generate(GenerationRequest request) throws IOException {
-        String projectDirectoryName = sanitize(request.getProjectName()) + "-" + LocalDate.now(clock).format(DATE_FORMAT);
-        return projectWriter.write(request.getEimId(), projectDirectoryName,
-                templateRenderer.renderBaseTest(request), templateRenderer.renderVariables(request),
-                templateRenderer.renderTestCase(request), templateRenderer.renderRequirements());
+        String projectDirectoryName = sanitize(request.getProjectName()) + "-"
+                + LocalDate.now(clock).format(DATE_FORMAT);
+        return projectWriter.write(
+                request.getEimId(),
+                projectDirectoryName,
+                templateRenderer.renderBaseTest(request),
+                templateRenderer.renderVariables(request),
+                templateRenderer.renderTestCase(request),
+                templateRenderer.renderRequirements()
+        );
     }
+
     private String sanitize(String value) {
-        String sanitized = value.trim().replaceAll("[^A-Za-z0-9_-]+", "-").replaceAll("^-+|-+$", "");
-        if (sanitized.isEmpty()) throw new IllegalArgumentException("Project name must contain a letter or number.");
+        String sanitized = value.trim().replaceAll("[^A-Za-z0-9_-]+", "-");
+        sanitized = sanitized.replaceAll("^-+|-$", "");
+        if (sanitized.isEmpty()) {
+            throw new IllegalArgumentException("Project name must contain a letter or number.");
+        }
         return sanitized;
     }
 }
