@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.DosFileAttributeView;
@@ -143,7 +144,7 @@ public class RobotGitSyncService {
     private Path resolveTargetDirectory(Path repository, String value) throws IOException {
         String relativePath = value == null ? "" : value.trim().replace('\\', '/');
         Path relative = Paths.get(relativePath.isEmpty() ? "." : relativePath);
-        if (relative.isAbsolute() || relative.contains("..")) {
+        if (relative.isAbsolute()) {
             throw new IOException("Repository project path must be relative to the cloned repository.");
         }
         for (Path segment : relative) {

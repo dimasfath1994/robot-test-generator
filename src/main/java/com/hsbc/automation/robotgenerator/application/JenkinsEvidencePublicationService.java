@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -43,9 +44,9 @@ public class JenkinsEvidencePublicationService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Autowired
-public JenkinsEvidencePublicationService(EvidenceHttpClient http, EvidenceScreenshotCapture screenshots,
+    public JenkinsEvidencePublicationService(EvidenceHttpClient http, EvidenceScreenshotCapture screenshots,
             Environment environment) {
-        this(http, screenshoots, environment, Clock.systemDefaultZone());
+        this(http, screenshots, environment, Clock.systemDefaultZone());
     }
     
     public JenkinsEvidencePublicationService(EvidenceHttpClient http, EvidenceScreenshotCapture screenshots,
@@ -68,20 +69,21 @@ public JenkinsEvidencePublicationService(EvidenceHttpClient http, EvidenceScreen
         String password = pat.isEmpty() ? setting("my.password") : optionalCredential("my.password");
         URI supplied = https(suppliedBuildUrl);
         String directArtifactUrl = null;
-        String build = supplied.getRawPath();
-        int artifactIndex = build.indexOf("/artifact/");
+        URI build = supplied;
+        String suppliedPath = supplied.getRawPath();
+        int artifactIndex = suppliedPath.indexOf("/artifact/");
         if (artifactIndex >= 0) {
             if (!supplied.getPath().endsWith("/log.html")) {
                 throw new IOException("Enter an archived Robot log URL ending in /log.html.");
             }
-            for (String segment : supplied.getPath().substring(artifactIndex).split("/")) {
+            for (String segment : suppliedPath.substring(artifactIndex).split("/")) {
                 if ("..".equals(segment) || ".".equals(segment)) {
                     throw new IOException("Unsafe Jenkins artifact URL path.");
                 }
             }
             directArtifactUrl = supplied.toString();
             build = URI.create(supplied.getScheme() + "://" + supplied.getRawAuthority()
-                    + supplied.getRawPath().substring(0, artifactIndex) + "/").getRawPath();
+                    + suppliedPath.substring(0, artifactIndex) + "/");
         }
 
         URI git = https(suppliedGitUrl);
