@@ -43,6 +43,11 @@ public class JenkinsEvidencePublicationService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Autowired
+public JenkinsEvidencePublicationService(EvidenceHttpClient http, EvidenceScreenshotCapture screenshots,
+            Environment environment) {
+        this(http, screenshoots, environment, Clock.systemDefaultZone());
+    }
+    
     public JenkinsEvidencePublicationService(EvidenceHttpClient http, EvidenceScreenshotCapture screenshots,
             Environment environment, Clock clock) {
         this.http = http;
