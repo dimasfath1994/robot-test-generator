@@ -113,6 +113,7 @@ public class RobotGitSyncService {
             throw new IOException("git " + arguments[0] + " failed (exit " + status + ").");
         }
     }
+    
 
     private List<String> detectProjectDirectories(Path repository) throws IOException {
         List<String> candidates = new ArrayList<>();
