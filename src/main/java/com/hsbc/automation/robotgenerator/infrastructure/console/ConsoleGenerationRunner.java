@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 import com.hsbc.automation.robotgenerator.application.RobotProjectGenerationService;
 import com.hsbc.automation.robotgenerator.application.JenkinsEvidencePublicationService;
+import com.hsbc.automation.robotgenerator.application.H2GenerationBatchService;
 import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService.SyncMode;
@@ -24,6 +25,8 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
     private final boolean autoSyncEimGit;
     private final String gitRepoUrl;
     private final JenkinsEvidencePublicationService evidenceService;
+    private final boolean syncH2Database;
+    private final H2GenerationBatchService h2BatchService;
 
     public ConsoleGenerationRunner(
             RobotProjectGenerationService generationService,
@@ -36,7 +39,16 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
             RobotGitSyncService gitSyncService,
             boolean autoSyncEimGit,
             String gitRepoUrl) {
-        this(generationService, gitSyncService, autoSyncEimGit, gitRepoUrl, null);
+        this(generationService, gitSyncService, autoSyncEimGit, gitRepoUrl, null, false, null);
+    }
+
+    public ConsoleGenerationRunner(
+            RobotProjectGenerationService generationService,
+            RobotGitSyncService gitSyncService,
+            boolean autoSyncEimGit,
+            String gitRepoUrl,
+            JenkinsEvidencePublicationService evidenceService) {
+        this(generationService, gitSyncService, autoSyncEimGit, gitRepoUrl, evidenceService, false, null);
     }
 
     @Autowired
@@ -45,16 +57,25 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
             RobotGitSyncService gitSyncService,
             @Value("${auto.sync.eim.git:false}") boolean autoSyncEimGit,
             @Value("${git.repo.url:}") String gitRepoUrl,
-            JenkinsEvidencePublicationService evidenceService) {
+            JenkinsEvidencePublicationService evidenceService,
+            @Value("${sync.h2.db:false}") boolean syncH2Database,
+            H2GenerationBatchService h2BatchService) {
         this.generationService = generationService;
         this.gitSyncService = gitSyncService;
         this.autoSyncEimGit = autoSyncEimGit;
         this.gitRepoUrl = gitRepoUrl;
         this.evidenceService = evidenceService;
+        this.syncH2Database = syncH2Database;
+        this.h2BatchService = h2BatchService;
     }
 
     @Override
     public void run(String... args) throws Exception {
+        if (syncH2Database) {
+            h2BatchService.processActiveRequests();
+            return;
+        }
+
         Scanner scanner = new Scanner(System.in);
         System.out.println("Robot Framework Test Generator");
         System.out.println("----------------------------------------");

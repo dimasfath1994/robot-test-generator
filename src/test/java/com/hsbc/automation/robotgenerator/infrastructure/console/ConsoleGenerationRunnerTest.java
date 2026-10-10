@@ -8,11 +8,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.sql.SQLException;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.hsbc.automation.robotgenerator.application.RobotProjectGenerationService;
+import com.hsbc.automation.robotgenerator.application.H2GenerationBatchService;
+import com.hsbc.automation.robotgenerator.application.JenkinsEvidencePublicationService;
 import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
 import com.hsbc.automation.robotgenerator.infrastructure.filesystem.RobotProjectWriter;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService;
@@ -43,5 +46,25 @@ class ConsoleGenerationRunnerTest {
         }
 
         assertEquals(0, generationCalls.get());
+    }
+
+    @Test
+    void delegatesToH2BatchWithoutReadingConsoleWhenEnabled() throws Exception {
+        AtomicInteger batchCalls = new AtomicInteger();
+        H2GenerationBatchService batchService = new H2GenerationBatchService(
+                "jdbc:h2:mem:runner" + System.nanoTime(), "sa", "", false, "",
+                null, null, null) {
+            @Override
+            public BatchResult processActiveRequests() throws SQLException {
+                batchCalls.incrementAndGet();
+                return new BatchResult(0, 0);
+            }
+        };
+        ConsoleGenerationRunner runner = new ConsoleGenerationRunner(
+                null, null, false, "", (JenkinsEvidencePublicationService) null, true, batchService);
+
+        runner.run();
+
+        assertEquals(1, batchCalls.get());
     }
 }
