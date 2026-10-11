@@ -58,7 +58,7 @@ public class RobotGitSyncService {
         Path repository = workspace.resolve("repository");
         boolean pushed = false;
         try {
-            requireSuccess(workspace, "--arguments", "clone", "--", remote, repository.toString());
+            requireSuccess(workspace, "clone", remote, repository.toString());
             Path targetDirectory = resolveTargetDirectory(repository,
                     targetDirectorySelector.apply(detectProjectDirectories(repository)));
             SyncMode mode = modeSelector.get();
