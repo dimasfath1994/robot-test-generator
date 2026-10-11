@@ -38,7 +38,7 @@ public class JenkinsEvidencePublicationService {
 
     private static final String ATTACHMENT = "jenkins-evidence.png";
     private static final String HTML_ATTACHMENT = "log.html";
-    private static final Pattern CONFLUENCE_PAGE = Pattern.compile("^(.*)?/(?:spaces/[^/]+/)?pages/(\\d+)(?:/.*)?$");
+    private static final Pattern CONFLUENCE_PAGE = Pattern.compile("^(.*?)/(?:spaces/[^/]+/)?pages/(\\d+)(?:/.*)?$");
 
     private final EvidenceHttpClient http;
     private final EvidenceScreenshotCapture screenshots;
