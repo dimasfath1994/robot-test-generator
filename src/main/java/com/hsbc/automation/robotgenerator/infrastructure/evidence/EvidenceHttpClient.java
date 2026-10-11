@@ -65,7 +65,7 @@ public class EvidenceHttpClient {
 
     public void upload(URI url, Path screenshot, String filename, String username, String password)
             throws IOException {
-        if (!filename.matches("[A-Za-z0-9_.-]+")) {
+        if (!filename.matches("[A-Za-z0-9._-]+")) {
             throw new IOException("Invalid evidence attachment filename.");
         }
         String boundary = "robot-evidence-" + UUID.randomUUID();
@@ -88,10 +88,9 @@ public class EvidenceHttpClient {
     private String request(URI url, String method, byte[] body, String contentType, boolean attachment,
             String username, String password, boolean authenticated, int redirects) throws IOException {
         boolean https = "https".equalsIgnoreCase(url.getScheme());
-        if ((https && authenticated) || !"http".equalsIgnoreCase(url.getScheme())) {
-            if (url.getHost() == null || url.getUserInfo() != null) {
+        if ((!https && (authenticated || !"http".equalsIgnoreCase(url.getScheme())))
+            || url.getHost() == null || url.getUserInfo() != null) {
                 throw new IOException("Evidence API URLs must use HTTPS without embedded credentials.");
-            }
         }
         HttpURLConnection connection = openConnection(url);
         int effectiveReadTimeoutMs = authenticated ? readTimeoutMs : gridReadTimeoutMs;
@@ -144,7 +143,7 @@ public class EvidenceHttpClient {
                             + ". Cross-origin or insecure redirect blocked; credentials were not forwarded.");
                 }
                 String path = target.getPath() == null ? "" : target.getPath();
-                if (path.matches("(?i).*(?:^|/)(?:/login|signin|sign_in|sso|saml|oauth|authorize|auth)(?:/|\\.|$).*")) {
+                if (path.matches("(?i).*(?:^|/)(?:login|signin|sign_in|sso|saml|oauth|authorize|auth)(?:/|\\.|$).*")) {
                     throw new IOException("Evidence API returned HTTP " + status
                             + " to a login/SSO page. Basic credentials cannot complete interactive SSO.");
                 }
