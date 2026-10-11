@@ -75,8 +75,8 @@ public class EvidenceScreenshotCapture {
             call(session + "/execute/sync", "POST", render.toString());
             ObjectNode wait = mapper.createObjectNode();
             wait.put("script", "var done=arguments[arguments.length-1],start=Date.now();"
-                    + "(function ready(){var text=document.body.document.body.innerText.toLowerCase():'';"
-                    + "if(text.indexOf('test statistics')>0){done(true);}"
+                    + "(function ready(){var text=document.body?document.body.innerText.toLowerCase():'';"
+                    + "if(text.indexOf('test statistics')>=0){done(true);}"
                     + "else if(Date.now()-start>25000){done(false);}else{setTimeout(ready,100);}})();");
             wait.putArray("args");
             if (!call(session + "/execute/async", "POST", wait.toString()).path("value").asBoolean()) {

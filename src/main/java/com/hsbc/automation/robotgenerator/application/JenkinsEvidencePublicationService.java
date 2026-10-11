@@ -79,7 +79,7 @@ public class JenkinsEvidencePublicationService {
             if (!supplied.getPath().endsWith("/log.html")) {
                 throw new IOException("Enter an archived Robot log URL ending in /log.html.");
             }
-            for (String segment : suppliedPath.substring(artifactIndex).split("/")) {
+            for (String segment : supplied.getPath().substring(artifactIndex).split("/")) {
                 if ("..".equals(segment) || ".".equals(segment)) {
                     throw new IOException("Unsafe Jenkins artifact URL path.");
                 }
@@ -114,7 +114,7 @@ public class JenkinsEvidencePublicationService {
 
         String[] segments = build.getPath().replaceAll("/+$", "").split("/");
         String buildNumber = segments[segments.length - 1];
-        if (directArtifactUrl != null && !githubPagesSource) {
+        if (directArtifactUrl == null && !githubPagesSource) {
             JsonNode metadata = read(jenkinsGet(URI.create(buildUrl
                     + "api/json?tree=number,building,result"), username, password));
             int metadataNumber = metadata.path("number").asInt();
@@ -234,7 +234,7 @@ public class JenkinsEvidencePublicationService {
                 + URLEncoder.encode(filename, "UTF-8")), username, password));
         String uploadUrl = base;
         if (attachments.path("results").size() > 0) {
-            uploadUrl += "/" + attachments.path("results").get(0).path("id") + "/data";
+            uploadUrl += "/" + contentId(attachments.path("results").get(0)) + "/data";
         }
         http.upload(URI.create(uploadUrl), file, filename, username, password);
     }

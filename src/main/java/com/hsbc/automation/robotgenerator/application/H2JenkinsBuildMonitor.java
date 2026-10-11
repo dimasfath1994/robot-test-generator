@@ -48,7 +48,10 @@ public class H2JenkinsBuildMonitor {
             String token = environment.getProperty("jenkins.api.token", "").trim();
             password = token.isEmpty() ? environment.getProperty("my.password", "") : token;
         } catch (IllegalArgumentException exception) {
-            throw new IOException("Configure my.username and jenkins.api.token (or my.password) for H2 polling");
+            throw new IOException("JENKINS_BUILD_URL must identify a build number, not a job or lastBuild");
+        }
+        if (username.isEmpty() || password.isEmpty()) {
+            throw new IOException("Configure my.username and jenkins.api.token (or my.password) for H2 polling.");
         }
         URI api = URI.create(supplied.getScheme() + "://" + supplied.getRawAuthority() + path
                     + "/api/json?tree=number,building,result");

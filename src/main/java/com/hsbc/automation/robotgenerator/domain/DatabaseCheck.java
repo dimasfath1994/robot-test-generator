@@ -41,8 +41,8 @@ public final class DatabaseCheck {
             this.username = environmentName(username, "DB_USERNAME");
             this.password = environmentName(password, "DB_PASSWORD");
         } else {
-            this.username = literal(username, "DB_USERNAME");
-            this.password = literal(password, "DB_PASSWORD");
+            this.username = literal(username, "DB username");
+            this.password = literal(password, "DB password");
         }
     }
 

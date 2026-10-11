@@ -57,7 +57,7 @@ public class RobotResultSummaryRenderer {
             graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
             graphics.setColor(new Color(30, 90, 65));
             graphics.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 28));
-            graphics.drawString("Regression Tes Summary", 44, 49);
+            graphics.drawString("Regression Test Summary", 44, 49);
             graphics.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 20));
             graphics.setColor(new Color(32, 32, 32));
             int baseline = 116;

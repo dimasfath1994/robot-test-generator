@@ -49,11 +49,11 @@ class JenkinsEvidencePublicationServiceTest {
     }
 
     @Test
-    void rejectsDirectArtifactWhenJenkinsReturnsMetadataForAnotherBuild() {
+    void rejectsBuildWhenJenkinsReturnsMetadataForAnotherBuild() {
         http.consoleText = "{\"number\":41,\"building\":false,\"result\":\"SUCCESS\"}";
 
         IOException exception = assertThrows(IOException.class, () -> service.publish(request(),
-                "https://jenkins.example/job/app/42/artifact/log.html", "https://git.example/team/project"));
+                "https://jenkins.example/job/app/42/", "https://git.example/team/project"));
 
         assertEquals("Jenkins returned metadata for a different build.", exception.getMessage());
         assertEquals(1, http.getRequests);
