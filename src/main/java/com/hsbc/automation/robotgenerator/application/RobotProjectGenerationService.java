@@ -47,7 +47,7 @@ public class RobotProjectGenerationService {
                 templateRenderer.renderBaseTest(request),
                 templateRenderer.renderVariables(request),
                 templateRenderer.renderTestCase(request),
-                templateRenderer.renderRequirements()
+                templateRenderer.renderRequirements(request)
         );
     }
 

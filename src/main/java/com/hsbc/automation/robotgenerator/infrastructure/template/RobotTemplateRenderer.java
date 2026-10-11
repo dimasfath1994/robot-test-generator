@@ -86,6 +86,7 @@ public class RobotTemplateRenderer {
                         return "*** Settings ***\nDocumentation    ${TC01_TEST_CASE_DESCRIPTION}\n"
                                 + "Resource     ../../Keywords/BaseTest.robot\nResource       ../../Resources/locators.robot\n\n"
                                 + "Test Setup   Connect To SWD Database\nTest Teardown  Disconnect From SWD Database\n\n"
+                                + "*** Test Cases ***\n${TC01_TEST_CASE_NAME}\n     [Tags]    Database  Regression\n\n"
                                 + "     Row Count Is Equal To X\n       ...     ${QUERY_GET_USER_BY_NAME}\n"
                                 + "     ...     ${EXPECTED_ROW_COUNT}";
                 }
@@ -104,7 +105,7 @@ public class RobotTemplateRenderer {
                 + "Resource    ../../Resources/locators.robot\n\n"
                 + "Test Setup    Create Application Session    ${BASE_URL}\n"
                 + "Test Teardown    Close Application Session\n\n"
-                + "**** Test Cases ***\n"
+                + "*** Test Cases ***\n"
         + (request.hasEndpoint()
                 ? "Verify Application Login Page Accessibility\n"
                         + "    [Documentation]    Verify that the application URL is accessible\n"

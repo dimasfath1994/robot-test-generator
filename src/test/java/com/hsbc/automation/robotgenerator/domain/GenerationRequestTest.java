@@ -28,6 +28,21 @@ class GenerationRequestTest {
     }
 
     @Test
+    void createsDatabaseRequestWithoutHttpUrl() {
+        DatabaseCheck database = new DatabaseCheck("pymssql", "appdb", "sql.example", 1433,
+                "SELECT 1", 1, "Verify DB", "Check database result");
+
+        GenerationRequest request = new GenerationRequest("EIM-1", "DB Health", database);
+
+        assertTrue(request.isDatabaseCheck());
+        assertEquals(database, request.getDatabaseCheck());
+        assertEquals("EIM-1", request.getEimId());
+        assertEquals("DB Health", request.getProjectName());
+        assertEquals("/", request.getEndpoint());
+        assertFalse(request.hasEndpoint());
+    }
+
+    @Test
     void rejectsMissingRequiredValuesAndInvalidBaseUrl() {
         assertThrows(IllegalArgumentException.class, () -> new GenerationRequest(" ", "Project", "https://example.com", "/"));
         assertThrows(IllegalArgumentException.class, () -> new GenerationRequest("EIM-1", "Project", "ftp://example.com", "/"));

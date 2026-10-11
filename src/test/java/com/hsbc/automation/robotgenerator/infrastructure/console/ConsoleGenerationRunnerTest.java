@@ -1,12 +1,14 @@
 package com.hsbc.automation.robotgenerator.infrastructure.console;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.sql.SQLException;
 
@@ -38,7 +40,7 @@ class ConsoleGenerationRunnerTest {
         };
         ConsoleGenerationRunner runner = new ConsoleGenerationRunner(generationService, new RobotGitSyncService());
         InputStream originalInput = System.in;
-        System.setIn(new ByteArrayInputStream("EIM-42\nPortal\nnot a url\n/\n".getBytes(StandardCharsets.UTF_8)));
+        System.setIn(new ByteArrayInputStream("EIM-42\nPortal\nn\nnot a url\n/\n".getBytes(StandardCharsets.UTF_8)));
         try {
             runner.run();
         } finally {
@@ -66,5 +68,34 @@ class ConsoleGenerationRunnerTest {
         runner.run();
 
         assertEquals(1, batchCalls.get());
+    }
+
+    @Test
+    void buildsDatabaseGenerationRequestFromInteractiveInput() throws Exception {
+        AtomicReference<GenerationRequest> generatedRequest = new AtomicReference<>();
+        RobotProjectGenerationService generationService = new RobotProjectGenerationService(
+                new RobotTemplateRenderer(), new RobotProjectWriter(temporaryDirectory.toString()), Clock.systemUTC()) {
+            @Override
+            public Path generate(GenerationRequest request) {
+                generatedRequest.set(request);
+                return temporaryDirectory;
+            }
+        };
+        ConsoleGenerationRunner runner = new ConsoleGenerationRunner(generationService, new RobotGitSyncService());
+        String input = "EIM-55\nDatabase Health\ny\n\nappdb\nsql.example\n1433\nSELECT 1\n1\nVerify DB\nCheck database\n\nn\nn\n";
+        InputStream originalInput = System.in;
+        System.setIn(new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)));
+        try {
+            runner.run();
+        } finally {
+            System.setIn(originalInput);
+        }
+
+        assertTrue(generatedRequest.get().isDatabaseCheck());
+        assertEquals("EIM-55", generatedRequest.get().getEimId());
+        assertEquals("appdb", generatedRequest.get().getDatabaseCheck().getName());
+        assertEquals("sql.example", generatedRequest.get().getDatabaseCheck().getHost());
+        assertEquals("SELECT 1", generatedRequest.get().getDatabaseCheck().getQuery());
+        assertTrue(generatedRequest.get().getDatabaseCheck().usesEnvironmentCredentials());
     }
 }

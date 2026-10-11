@@ -48,7 +48,7 @@ public class RobotGitSyncService {
         for (String item : PROJECT_ITEMS) {
             Path source = generatedProject.resolve(item);
             if (Files.isSymbolicLink(source)
-                    || (!"requirements.txt".equals(item) ? !Files.isRegularFile(source)
+                    || ("requirements.txt".equals(item) ? !Files.isRegularFile(source)
                             : !Files.isDirectory(source))) {
                 throw new IOException("Missing or invalid generated item: " + item);
             }
@@ -153,7 +153,7 @@ public class RobotGitSyncService {
             }
         }
         Path target = repository.resolve(relative).normalize();
-        if (!target.startsWith(repository) || Files.isDirectory(target)) {
+        if (!target.startsWith(repository) || !Files.isDirectory(target)) {
             throw new IOException("Repository project path must be an existing directory inside the repository.");
         }
         Path repositoryRealPath = repository.toRealPath();

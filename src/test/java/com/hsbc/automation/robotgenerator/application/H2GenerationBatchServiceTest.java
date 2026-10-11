@@ -38,6 +38,7 @@ class H2GenerationBatchServiceTest {
     private RecordingGenerationService generation;
     private RecordingGitSyncService git;
     private RecordingEvidenceService evidence;
+    private RecordingBuildMonitor buildMonitor;
     private H2GenerationBatchService batch;
 
     @BeforeEach
@@ -46,8 +47,10 @@ class H2GenerationBatchServiceTest {
         generation = new RecordingGenerationService(temporaryDirectory);
         git = new RecordingGitSyncService();
         evidence = new RecordingEvidenceService();
+        buildMonitor = new RecordingBuildMonitor();
         batch = new H2GenerationBatchService(jdbcUrl, "sa", "", true,
                 "https://git.example/team/projects", generation, git, evidence);
+        batch.configureWorker(buildMonitor, 1, 7200000);
         batch.processActiveRequests();
     }
 
@@ -98,6 +101,29 @@ class H2GenerationBatchServiceTest {
         assertTrue(Files.exists(Paths.get(databaseFile.toString() + ".mv.db")));
     }
 
+    @Test
+    void keepsRunningBuildActiveAndPublishesItOnLaterPoll() throws Exception {
+        java.time.Instant start = java.time.Instant.parse("2026-10-11T12:00:00Z");
+        batch.clock = Clock.fixed(start, java.time.ZoneOffset.UTC);
+        buildMonitor.complete = false;
+        insert("EIM-44", "Portal", true, null, ".", "OVERWRITE",
+                "https://jenkins.example/job/portal/44/");
+
+        H2GenerationBatchService.BatchResult firstPoll = batch.processActiveRequests();
+
+        assertEquals(0, firstPoll.getCompleted());
+        assertTrue(isActive("EIM-44"));
+        assertEquals(0, evidence.calls);
+
+        batch.clock = Clock.fixed(start.plusMillis(2), java.time.ZoneOffset.UTC);
+        buildMonitor.complete = true;
+        H2GenerationBatchService.BatchResult secondPoll = batch.processActiveRequests();
+
+        assertEquals(1, secondPoll.getCompleted());
+        assertFalse(isActive("EIM-44"));
+        assertEquals(1, evidence.calls);
+    }
+
     private void insert(String eimId, String projectName, boolean active, String repositoryUrl,
             String projectPath, String syncMode, String buildUrl) throws Exception {
         String sql = "INSERT INTO ROBOT_GENERATION_REQUEST "
@@ -142,6 +168,19 @@ class H2GenerationBatchServiceTest {
         public Path generate(GenerationRequest request) {
             eimIds.add(request.getEimId());
             return output.resolve(request.getEimId());
+        }
+    }
+
+    private static class RecordingBuildMonitor extends H2JenkinsBuildMonitor {
+        private boolean complete = true;
+
+        private RecordingBuildMonitor() {
+            super(new EvidenceHttpClient(1000, 1000, 1000), new StandardEnvironment());
+        }
+
+        @Override
+        public boolean isComplete(String buildUrl) {
+            return complete;
         }
     }
 

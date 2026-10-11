@@ -92,7 +92,7 @@ public class H2GenerationBatchService {
                 String message = exception.getMessage() == null ? exception.getClass().getSimpleName()
                         : exception.getMessage();
                 try (Connection connection = connect(); PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE" + TABLE + " SET last_error = ?, next_check_at = ? WHERE id = ?")) {
+                    "UPDATE " + TABLE + " SET last_error = ?, next_check_at = ? WHERE id = ?")) {
                         statement.setString(1, message.substring(0, Math.min(message.length(), 4000)));
                         statement.setLong(2, clock.millis() + pollIntervalMs);
                         statement.setLong(3, record.id);
@@ -121,7 +121,7 @@ public class H2GenerationBatchService {
             Path generatedProject = generationService.generate(request);
             gitSyncService.sync(generatedProject, repositoryUrl, candidates -> projectPath, () -> mode);
             try (Connection connection = connect(); PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE" + TABLE + " SET process_status = 'WAITING_JENKINS', resolved_git_url = ? WHERE id = ?")) {
+                    "UPDATE " + TABLE + " SET process_status = 'WAITING_JENKINS', resolved_git_url = ? WHERE id = ?")) {
                         statement.setString(1, repositoryUrl);
                         statement.setLong(2, record.id);
                         statement.executeUpdate();
@@ -155,7 +155,7 @@ public class H2GenerationBatchService {
 
     private void updateWaiting(long id, String status, long started, String buildUrl) throws SQLException {
         try (Connection connection = connect(); PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE" + TABLE + " SET process_status = ?, wait_started_at = ?, tracked_build_url = ?, "
+                    "UPDATE " + TABLE + " SET process_status = ?, wait_started_at = ?, tracked_build_url = ?, "
                     + "next_check_at = ?, last_error = ? WHERE id = ?")) {
                         statement.setString(1, status);
                         statement.setLong(2, started);
@@ -202,7 +202,7 @@ public class H2GenerationBatchService {
                     + "wait_started_at, tracked_build_url, is_db, db_module_name, db_name, db_host, db_port, "
                     + "db_query, expected_row_count, db_test_case_name, db_test_case_description, "
                     + "db_credential_mode, db_username, db_password "
-                    + "FROM " + TABLE + " WHERE is_active = TRUE AND process_status IN ('PENDING', 'WAITING JENKINS', 'RUNNING', 'PUBLISHING') "
+                    + "FROM " + TABLE + " WHERE is_active = TRUE AND process_status IN ('PENDING', 'WAITING_JENKINS', 'RUNNING', 'PUBLISHING') "
                     + "AND next_check_at <= " + clock.millis() + " ORDER BY id";
             try (Statement statement = connection.createStatement(); ResultSet results = statement.executeQuery(sql)) {
                 while (results.next()) {
@@ -243,25 +243,25 @@ public class H2GenerationBatchService {
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
             statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN jenkins_build_url DROP NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS process_status VARCHAR(32) DEFAULT 'PENDING' NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS resolved_git_url VARCHAR(2048)");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS wait_started_at BIGINT DEFAULT 0 NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS tracked_build_url VARCHAR(2048)");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS next_check_at BIGINT DEFAULT 0 NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS last_error VARCHAR(4000)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS process_status VARCHAR(32) DEFAULT 'PENDING' NOT NULL");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS resolved_git_url VARCHAR(2048)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS wait_started_at BIGINT DEFAULT 0 NOT NULL");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS tracked_build_url VARCHAR(2048)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS next_check_at BIGINT DEFAULT 0 NOT NULL");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS last_error VARCHAR(4000)");
             statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN base_url DROP NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS is_db BOOLEAN DEFAULT FALSE NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_module_name VARCHAR(100) DEFAULT 'pymssql'");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_name VARCHAR(255)");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_host VARCHAR(255)");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_port INTEGER");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_query CLOB");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS expected_row_count INTEGER DEFAULT 1 NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_test_case_name VARCHAR(255) DEFAULT 'Verify Database Query'");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_test_case_description VARCHAR(1024) DEFAULT 'Verify database query row count'");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_credential_mode VARCHAR(16) DEFAULT 'ENV' NOT NULL");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_username VARCHAR(1024)");
-            statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN IF NOT EXISTS db_password VARCHAR(2048)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS is_db BOOLEAN DEFAULT FALSE NOT NULL");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_module_name VARCHAR(100) DEFAULT 'pymssql'");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_name VARCHAR(255)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_host VARCHAR(255)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_port INTEGER");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_query CLOB");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS expected_row_count INTEGER DEFAULT 1 NOT NULL");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_test_case_name VARCHAR(255) DEFAULT 'Verify Database Query'");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_test_case_description VARCHAR(1024) DEFAULT 'Verify database query row count'");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_credential_mode VARCHAR(16) DEFAULT 'ENV' NOT NULL");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_username VARCHAR(1024)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_password VARCHAR(2048)");
         }
     }
 

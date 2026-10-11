@@ -379,7 +379,7 @@ public class JenkinsEvidencePublicationService {
             paragraph(xml, "Report", evidence.getLogUrl(), "TS01 TC01 Log");
             if (screenshotAvailable) {
                 if (summaryMode) {
-                    xml.writeStartDocument("p");
+                    xml.writeStartElement("p");
                     xml.writeCharacters("Regression Test Summary (from output.xml; not an application screenshot)");
                     xml.writeEndElement();
                 }

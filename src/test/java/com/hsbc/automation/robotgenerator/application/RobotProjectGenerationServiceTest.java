@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
+import com.hsbc.automation.robotgenerator.domain.DatabaseCheck;
 import com.hsbc.automation.robotgenerator.infrastructure.filesystem.RobotProjectWriter;
 import com.hsbc.automation.robotgenerator.infrastructure.template.RobotTemplateRenderer;
 
@@ -47,4 +49,25 @@ class RobotProjectGenerationServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.generate(
                 new GenerationRequest("EIM-42", "--- !!! ---", "https://example.com", "/")));
     }
+
+        @Test
+        void generatesDatabaseProjectWithDatabaseDependenciesAndCredentialsFromEnvironment() throws Exception {
+                RobotProjectGenerationService service = new RobotProjectGenerationService(
+                                new RobotTemplateRenderer(), new RobotProjectWriter(temporaryDirectory.toString()),
+                                Clock.fixed(Instant.parse("2026-10-10T12:00:00Z"), ZoneOffset.UTC));
+                DatabaseCheck database = new DatabaseCheck("pymssql", "appdb", "sql.example", 1433,
+                                "SELECT 1", 1, "Verify DB", "Check database result");
+
+                Path project = service.generate(new GenerationRequest("EIM-42", "Database Health", database));
+                String variables = new String(Files.readAllBytes(project.resolve("Resources/locators.robot")), StandardCharsets.UTF_8);
+                String requirements = new String(Files.readAllBytes(project.resolve("requirements.txt")), StandardCharsets.UTF_8);
+                String testCase = new String(Files.readAllBytes(project.resolve("Tests/Regression/TS01_TC01.robot")), StandardCharsets.UTF_8);
+
+                assertTrue(variables.contains("${DB_USERNAME}    %{DB_USERNAME}"));
+                assertTrue(variables.contains("${DB_PASSWORD}    %{DB_PASSWORD}"));
+                assertTrue(requirements.contains("robotframework-databaselibrary"));
+                assertTrue(requirements.contains("pymssql"));
+                assertTrue(testCase.contains("*** Test Cases ***"));
+                assertTrue(testCase.contains("${TC01_TEST_CASE_NAME}"));
+        }
 }

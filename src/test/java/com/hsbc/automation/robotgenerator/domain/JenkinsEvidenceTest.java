@@ -24,8 +24,10 @@ class JenkinsEvidenceTest {
     }
 
     @Test
-    void rejectsLogLinkWithoutExplicitPort() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new JenkinsEvidence("job #1", "build", "git", "- Log: https://jenkins/job/1/log.html"));
+    void acceptsLogLinkWithoutExplicitPort() {
+        JenkinsEvidence evidence = new JenkinsEvidence(
+                "job #1", "build", "git", "- Log: https://jenkins/job/1/log.html");
+
+        assertEquals("https://jenkins/job/1/log.html", evidence.getLogUrl());
     }
 }
