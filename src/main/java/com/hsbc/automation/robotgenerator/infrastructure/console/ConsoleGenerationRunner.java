@@ -14,6 +14,7 @@ import com.hsbc.automation.robotgenerator.application.RobotProjectGenerationServ
 import com.hsbc.automation.robotgenerator.application.JenkinsEvidencePublicationService;
 import com.hsbc.automation.robotgenerator.application.H2GenerationBatchService;
 import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
+import com.hsbc.automation.robotgenerator.domain.DatabaseCheck;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService.SyncMode;
 
@@ -82,12 +83,40 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
 
         String eimId = prompt(scanner, "EIM ID");
         String projectName = prompt(scanner, "Project name");
-        String baseUrl = prompt(scanner, "URL");
-        String endpoint = prompt(scanner, "Endpoint (optional, press Enter for root)");
 
         GenerationRequest request;
         try {
-            request = new GenerationRequest(eimId, projectName, baseUrl, endpoint);
+            if (selectDatabaseCheck(scanner)) {
+                String module = prompt(scanner, "DB module (Enter for pymssql)").trim();
+                DatabaseCheck database = new DatabaseCheck(module.isEmpty() ? "pymssql" : module,
+                    prompt(scanner, "DB name"), prompt(scanner, "DB host"),
+                    Integer.parseInt(prompt(scanner, "DB port")), prompt(scanner, "SQL query"),
+                    Integer.parseInt(prompt(scanner, "Expected row count")),
+                    prompt(scanner, "Test case name"), prompt(scanner, "Test case description"));
+                String credentialMode = prompt(scanner, "DB credentials: ENV or LITERAL (Enter for ENV)").trim();
+                if (!credentialMode.isEmpty()) {
+                    String dbUsername;
+                    String dbPassword;
+                    if ("LITERAL".equalsIgnoreCase(credentialMode)) {
+                        System.out.println("Warning: literal DB credentials will be written to generated scripts and pushed to Git.");
+                        dbUsername = prompt(scanner, "DB username");
+                        dbPassword = readDatabasePassword();
+                    } else if ("ENV".equalsIgnoreCase(credentialMode)) {
+                        dbUsername = prompt(scanner, "Username environment name (Enter for DB_USERNAME)");
+                        dbPassword = prompt(scanner, "Password environment name (Enter for DB_PASSWORD)");
+                    } else {
+                        throw new IllegalArgumentException("DB credential mode must be ENV or LITERAL.");
+                    }
+                    database = new DatabaseCheck(database.getModule(), database.getName(), database.getHost(),
+                                    database.getPort(), database.getQuery(), database.getExpectedRowCount(),
+                                    database.getTestName(), database.getDescription(), credentialMode, dbUsername, dbPassword);
+                }    
+                request = new GenerationRequest(eimId, projectName, database);
+            } else {
+                 String baseUrl = prompt(scanner, "URL");
+                 String endpoint = prompt(scanner, "Endpoint (optional, press Enter for root)");
+                 request = new GenerationRequest(eimId, projectName, baseUrl, endpoint);
+            } 
         } catch (IllegalArgumentException exception) {
             System.out.println("Invalid input: " + exception.getMessage());
             return;
@@ -234,5 +263,38 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
     private String prompt(Scanner scanner, String label) {
         System.out.print(label + ": ");
         return scanner.nextLine();
+    }
+
+    private boolean selectDatabaseCheck(Scanner scanner) {
+        while (true) {
+            String answer = prompt(scanner, "Database query check? y/n (Enter for HTTP)").trim();
+            if ("y".equalsIgnoreCase(answer)) {
+                return true;
+            }
+            if (answer.isEmpty() || "n".equalsIgnoreCase(answer)) {
+                return false;
+            }
+            System.out.println("Enter y for database query or n for HTTP.");
+        }
+    }
+
+    protected String readDatabasePassword() {
+        java.io.Console console = System.console();
+        if (console == null) {
+            String password = System.getenv("DB_PASSWORD");
+            if (password == null || password.isEmpty()) {
+                throw new IllegalArgumentException("No hidden console available. Set DB_PASSWORD directly in your terminal before starting, or use ENV mode.");
+            }
+            return password;
+        }
+        char[] password = console.readPassword("DB password: ");
+        if (password == null) {
+            throw new IllegalArgumentException("DB password input cancelled");
+        }
+        try {
+            return new String(password);
+        } finally {
+            java.util.Arrays.fill(password, '\0');
+        }
     }
 }

@@ -45,11 +45,13 @@ public class EvidenceScreenshotCapture {
         try {
             gridStatus = mapper.readTree(httpClient.webdriver(URI.create(grid + "/status"), "GET", null));
         } catch (IOException exception) {
+            System.out.println("Selenium Grid unavailable; trying local " + browser + ": " + exception.getMessage());
             captureLocally(html, screenshot, browser);
             return;
         }
         JsonNode ready = gridStatus == null ? null : gridStatus.path("value").get("ready");
         if (ready != null && !ready.asBoolean()) {
+            System.out.println("Selenium Grid is not ready; trying local " + browser + ".");
             captureLocally(html, screenshot, browser);
             return;
         }
@@ -151,7 +153,7 @@ public class EvidenceScreenshotCapture {
             Files.deleteIfExists(screenshot);
             List<String> command = new ArrayList<>();
             command.add(executable);
-            command.add("--headless");
+            command.add("--headless=new");
             command.add("--disable-gpu");
             command.add("--disable-background-mode");
             command.add("--disable-extensions");
@@ -185,7 +187,8 @@ public class EvidenceScreenshotCapture {
             } catch (IOException invalidScreenshot) {
                 if (process.exitValue() != 0) {
                     throw new IOException("Local headless browser exited with code " + process.exitValue()
-                            + " and did not produce a valid PNG." + browserOutput(processOutput), invalidScreenshot);
+                            + " and did not produce a valid PNG. Executable: " + executable
+                            + ". " + browserOutput(processOutput), invalidScreenshot);
                 }
                 throw invalidScreenshot;
             }

@@ -3,6 +3,7 @@ package com.hsbc.automation.robotgenerator.application;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,6 +30,8 @@ import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
 import com.hsbc.automation.robotgenerator.domain.JenkinsEvidence;
 import com.hsbc.automation.robotgenerator.infrastructure.evidence.EvidenceHttpClient;
 import com.hsbc.automation.robotgenerator.infrastructure.evidence.EvidenceScreenshotCapture;
+import com.hsbc.automation.robotgenerator.infrastructure.evidence.RobotResultSummaryRenderer;
+
 
 @Service
 public class JenkinsEvidencePublicationService {
@@ -89,7 +92,7 @@ public class JenkinsEvidencePublicationService {
         URI git = https(suppliedGitUrl);
         URI root = https(setting("confluence.url"));
         String buildUrl = build.toString().replaceAll("/+$", "") + "/";
-        if (!build.getPath().matches(".*/job/.*/\\d+/?[^/]*$")) {
+        if (!build.getPath().matches(".*/job/.*/\\d+/?")) {
             throw new IOException("Enter a specific completed Jenkins build URL ending in </build-number/>.");
         }
 
@@ -103,16 +106,7 @@ public class JenkinsEvidencePublicationService {
         String rootId = rootPage.group(2);
         boolean githubPagesSource = "github-pages".equalsIgnoreCase(
                 environment.getProperty("evidence.source", "published-log"));
-        String configuredReport = environment.getProperty("evidence.report.url", "").trim();
         String configuredScreenshot = environment.getProperty("evidence.screenshot.url", "").trim();
-        if (githubPagesSource && configuredReport.isEmpty() && directArtifactUrl != null) {
-            configuredReport = directArtifactUrl;
-        }
-
-        if (githubPagesSource && configuredReport.isEmpty()) {
-            throw new IOException("Set evidence.report.url to the Jenkins log.html URL, or enter the complete"
-                    + " Jenkins /artifact/.../log.html URL. The artifact folder cannot be guessed from the build URL.");
-        }
 
         if (githubPagesSource && configuredScreenshot.isEmpty()) {
             throw new IOException("evidence.screenshot.url is required for the GitHub Pages screenshot source.");
@@ -122,7 +116,7 @@ public class JenkinsEvidencePublicationService {
         String buildNumber = segments[segments.length - 1];
         if (directArtifactUrl != null && !githubPagesSource) {
             JsonNode metadata = read(jenkinsGet(URI.create(buildUrl
-                    + "api/json?tree=building,result"), username, password));
+                    + "api/json?tree=number,building,result"), username, password));
             int metadataNumber = metadata.path("number").asInt();
             if (metadata.path("building").asBoolean(true) || metadataNumber < 1
                     || metadata.path("result").asText().isEmpty()) {
@@ -137,22 +131,20 @@ public class JenkinsEvidencePublicationService {
         String gitUrl = git.toString();
         boolean artifactSource = !githubPagesSource && (directArtifactUrl != null
                 || "jenkins-artifact".equalsIgnoreCase(environment.getProperty("evidence.source", "published-log")));
-        JenkinsEvidence evidence = new JenkinsEvidence(target, buildUrl, gitUrl, configuredReport.isEmpty()
-                ? jenkinsGet(URI.create(buildUrl + "consoleText"), username, password)
-                : configuredReport);
+        String artifactReport = directArtifactUrl == null
+                ? archivedLogUrl(buildUrl, username, password) : directArtifactUrl;
+        JenkinsEvidence evidence = new JenkinsEvidence(target, buildUrl, gitUrl, "- Log: " + artifactReport);
         URI report = https(evidence.getLogUrl());
         if (!sameOrigin(report, git) && !sameOrigin(report, build)) {
             throw new IOException("Published log host must match the Git or Jenkins origin before credentials can be sent.");
         }
-        if (githubPagesSource && !sameOrigin(report, build)) {
-            if (!report.getRawPath().startsWith(build.getRawPath())) {
+        if (githubPagesSource && (!sameOrigin(report, build)
+            || !report.getRawPath().startsWith(build.getRawPath()))) {
                 throw new IOException("The Report URL must be a Jenkins log.html URL belonging to the selected build.");
-            }
         }
 
-        URI source = artifactSource
-                ? https(directArtifactUrl == null ? archivedLogUrl(buildUrl, username, password) : directArtifactUrl)
-                : report;
+        URI source = report;
+        System.out.println("Confluence Report URL: " + report);
 
         String html = null;
         if (githubPagesSource) {
@@ -173,20 +165,35 @@ public class JenkinsEvidencePublicationService {
 
         Path screenshot = Files.createTempFile("robot-jenkins-evidence-", ".png");
         Path htmlFile = null;
+        String imageMode = environment.getProperty("evidence.image.mode", "screenshot").trim();
+        boolean summaryMode = "robot-summary".equalsIgnoreCase(imageMode);
+        if (!summaryMode && !"screenshot".equalsIgnoreCase(imageMode)) {
+            Files.deleteIfExists(screenshot);
+            throw new IOException("evidence.image.mode must be 'screenshot' or 'robot-summary'.");
+        }
         try {
             boolean screenshotAvailable = false;
             if (html != null) {
                 htmlFile = Files.createTempFile("robot-jenkins-log-", ".html");
                 Files.write(htmlFile, html.getBytes(StandardCharsets.UTF_8));
                 try {
-                    screenshots.capture(html, screenshot);
+                    if (summaryMode) {
+                        URI outputXml = report.resolve("output.xml");
+                        String xml = jenkinsGet(outputXml, username, password);
+                        new RobotResultSummaryRenderer().render(xml, target, screenshot);
+                        System.out.println("Regression Test Summary generated from " + outputXml);
+                    }
+                    else {
+                        screenshots.capture(html, screenshot);
+                    }
                     screenshotAvailable = true;
                 } catch (IOException | RuntimeException exception) {
-                    System.out.println("Warning: screenshot capture failed; continuing evidence upload without screenshot.");
+                    System.out.println("Warning: evidence image generation failed; continuing evidence upload without image." 
+                        + exception.getMessage());
                 }
             }
 
-            JsonNode rootMetadata = read(http.get(URI.create(api + "/?" + rootId + "?expand=space"), username, password));
+            JsonNode rootMetadata = read(http.get(URI.create(api + "/" + rootId + "?expand=space"), username, password));
             String space = rootMetadata.path("space").path("key").asText();
             if (space.isEmpty()) {
                 throw new IOException("Confluence did not return the root page's space key.");
@@ -201,7 +208,7 @@ public class JenkinsEvidencePublicationService {
             String parentId = contentId(parent);
             String childTitle = parentTitle + " " + LocalDate.now(clock);
             JsonNode child = findChild(api, parentId, childTitle, username, password);
-            child = save(api, child, parentId, space, childTitle, storage(evidence, screenshotAvailable), username, password);
+            child = save(api, child, parentId, space, childTitle, storage(evidence, screenshotAvailable, summaryMode), username, password);
             String childId = contentId(child);
             if (htmlFile != null) {
                 uploadAttachment(api, childId, htmlFile, HTML_ATTACHMENT, username, password);
@@ -247,7 +254,7 @@ public class JenkinsEvidencePublicationService {
         } catch (IllegalArgumentException exception) {
             throw new IOException("jenkins.api.token could not be resolved; check its environment variable.");
         }
-        if (token.isEmpty()) {
+        if (!token.isEmpty()) {
             return http.get(url, setting("my.username"), token);
         }
         return http.get(url, username, password);
@@ -277,38 +284,45 @@ public class JenkinsEvidencePublicationService {
         try {
             return jenkinsRobotHtml(URI.create(archivedLogUrl(buildUrl, username, password)), username, password);
         } catch (IOException exception) {
-            throw new IOException("Published Robot log could not be read: " + publishedFailure.getMessage());
+            throw new IOException("Published Robot log could not be read: " + publishedFailure.getMessage()
+                                + " Jenkins artifact fallback failed: " + exception.getMessage(), exception);
         }
     }
 
     private String archivedLogUrl(String buildUrl, String username, String password) throws IOException {
-        JsonNode metadata = read(jenkinsGet(URI.create(buildUrl
-                + "api/json?tree=artifacts%5Bfilename%5D"), username, password));
-        List<String> candidates = new ArrayList<>();
-        for (JsonNode artifact : metadata.path("artifacts")) {
-            String relativePath = artifact.path("relativePath").asText();
-            if ("log.html".equals(artifact.path("filename").asText())) {
-                candidates.add(relativePath);
+       try {
+            JsonNode metadata = read(jenkinsGet(URI.create(buildUrl
+                    + "api/json?tree=artifacts%5BfileName%2CrelativePath%5D"), username, password));
+            List<String> candidates = new ArrayList<>();
+            for (JsonNode artifact : metadata.path("artifacts")) {
+                String relativePath = artifact.path("relativePath").asText();
+                if ("log.html".equals(artifact.path("fileName").asText())) {
+                    candidates.add(relativePath);
+                }
             }
-        }
-        String relativePath;
-        if (candidates.contains("log.html")) {
-            relativePath = "log.html";
-        } else if (candidates.size() == 1) {
-            relativePath = candidates.get(0);
-        } else {
-            throw new IOException("Jenkins has no unique archived log.html. Archive the Robot log in this build"
-                    + " or enable approved GitHub Pages API authentication.");
-        }
-        if (relativePath.isEmpty() || relativePath.startsWith("/") || relativePath.contains("\\")) {
-            throw new IOException("Jenkins returned an invalid log artifact path.");
-        }
-        for (String segment : relativePath.split("/")) {
-            if ("..".equals(segment) || ".".equals(segment)) {
-                throw new IOException("Unsafe Jenkins artifact URL path.");
+            String relativePath;
+            if (candidates.contains("log.html")) {
+                relativePath = "log.html";
+            } else if (candidates.size() == 1) {
+                relativePath = candidates.get(0);
+            } else {
+                throw new IOException("Jenkins has no unique archived log.html. Archive the Robot log in this build"
+                        + " or enable approved GitHub Pages API authentication.");
             }
-        }
-        return buildUrl + "artifact/" + relativePath;
+            if (relativePath.isEmpty() || relativePath.startsWith("/") || relativePath.contains("\\")
+                        || relativePath.contains(":")) {
+                throw new IOException("Jenkins returned an invalid log artifact path.");
+            }
+            for (String segment : relativePath.split("/")) {
+                if ("..".equals(segment) || ".".equals(segment)) {
+                    throw new IOException("Unsafe Jenkins artifact URL path.");
+                }
+            }
+            String encodedPath = new URI (null,null,  "/artifact/" + relativePath, null).toASCIIString();
+            return buildUrl + encodedPath.substring(1);
+        } catch (URISyntaxException exception) {
+            throw new IOException("Jenkins returned an invalid artifact path.", exception);
+        }   
     }
 
     private JsonNode findChild(String api, String parentId, String title, String username, String password)
@@ -355,7 +369,7 @@ public class JenkinsEvidencePublicationService {
         return read(http.json(URI.create(url), method, body.toString(), username, password));
     }
 
-    private String storage(JenkinsEvidence evidence, boolean screenshotAvailable) throws IOException {
+    private String storage(JenkinsEvidence evidence, boolean screenshotAvailable, boolean summaryMode) throws IOException {
         StringWriter result = new StringWriter();
         try {
             XMLStreamWriter xml = XMLOutputFactory.newFactory().createXMLStreamWriter(result);
@@ -364,6 +378,11 @@ public class JenkinsEvidencePublicationService {
             paragraph(xml, "Git", evidence.getGitUrl(), evidence.getGitUrl());
             paragraph(xml, "Report", evidence.getLogUrl(), "TS01 TC01 Log");
             if (screenshotAvailable) {
+                if (summaryMode) {
+                    xml.writeStartDocument("p");
+                    xml.writeCharacters("Regression Test Summary (from output.xml; not an application screenshot)");
+                    xml.writeEndElement();
+                }
                 xml.writeStartElement("ac", "image", "http://atlassian.com/content");
                 xml.writeNamespace("ac", "http://atlassian.com/content");
                 xml.writeNamespace("ri", "http://atlassian.com/resource/identifier");

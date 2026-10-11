@@ -3,19 +3,37 @@ package com.hsbc.automation.robotgenerator.domain;
 import java.net.URI;
 import java.net.URISyntaxException;
 
+import javax.xml.crypto.Data;
+
 public final class GenerationRequest {
 
     private final String eimId;
     private final String projectName;
     private final String baseUrl;
     private final String endpoint;
+    private final DatabaseCheck databaseCheck;
 
     public GenerationRequest(String eimId, String projectName, String baseUrl, String endpoint) {
         this.eimId = requireText(eimId, "EIM ID");
         this.projectName = requireText(projectName, "Project name");
         this.baseUrl = normalizeBaseUrl(baseUrl);
         this.endpoint = normalizeEndpoint(endpoint);
+        this.databaseCheck = null;
     }
+
+    public GenerationRequest(String eimId, String projectName, DatabaseCheck databaseCheck) {
+        this.eimId = requireText(eimId, "EIM ID");
+        this.projectName = requireText(projectName, "Project name");
+        if (databaseCheck == null) {
+            throw new IllegalArgumentException("Database check is required.");
+        }
+        this.databaseCheck = databaseCheck;
+        this.baseUrl = null;
+        this.endpoint = "/";
+    }
+
+    public boolean isDatabaseCheck() { return databaseCheck != null; }
+    public DatabaseCheck getDatabaseCheck() { return  databaseCheck; }
 
     public String getEimId() {
         return eimId;

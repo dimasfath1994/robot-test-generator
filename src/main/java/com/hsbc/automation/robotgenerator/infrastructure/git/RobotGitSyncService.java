@@ -72,8 +72,8 @@ public class RobotGitSyncService {
                 }
                 copyTree(generatedProject.resolve(item), destination);
             }
-            requireSuccess(repository, "--arguments", "add", "--", "-A");
-            int diffStatus = executeGit(repository, "--arguments", "diff", "--cached", "--quiet");
+            requireSuccess(repository, "add", "-A");
+            int diffStatus = executeGit(repository, "diff", "--cached", "--quiet");
             if (diffStatus == 0) {
                 deleteTree(workspace);
                 return false;
@@ -81,8 +81,8 @@ public class RobotGitSyncService {
             if (diffStatus != 1) {
                 throw new IOException("Git could not check staged changes (exit " + diffStatus + ").");
             }
-            requireSuccess(repository, "--arguments", "commit", "-m", "sync projects");
-            requireSuccess(repository, "--arguments", "push");
+            requireSuccess(repository, "commit", "-m", "sync projects");
+            requireSuccess(repository, "push");
             pushed = true;
             deleteTree(workspace);
             return true;

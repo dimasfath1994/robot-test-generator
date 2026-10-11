@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 
 public final class JenkinsEvidence {
 
-    private static final Pattern LOG_LINK = Pattern.compile("(?m)\\-\\s*Log\\:\\s*(https\\://\\S+)");
+    private static final Pattern LOG_LINK = Pattern.compile("(?m)-\\s*Log:\\s*(https://\\S+)");
 
     private final String target;
     private final String buildUrl;
@@ -23,7 +23,7 @@ public final class JenkinsEvidence {
             String candidate = matches.group(1);
             URI uri = URI.create(candidate);
             if (uri.getHost() != null && uri.getUserInfo() == null
-                    && uri.getPort() != -1 && uri.getPath() != null && uri.getPath().endsWith("/log.html")) {
+                    && uri.getPath() != null && uri.getPath().endsWith("/log.html")) {
                 detectedLog = candidate;
             }
         }

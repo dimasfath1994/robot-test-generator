@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -93,11 +94,11 @@ public class EvidenceHttpClient {
             }
         }
         HttpURLConnection connection = openConnection(url);
-        int timeout = operation(url, authenticated).startsWith("Selenium Grid") ? gridReadTimeoutMs : readTimeoutMs;
+        int effectiveReadTimeoutMs = authenticated ? readTimeoutMs : gridReadTimeoutMs;
         String phase = "waiting for response";
         try {
             connection.setConnectTimeout(connectTimeoutMs);
-            connection.setReadTimeout(timeout);
+            connection.setReadTimeout(effectiveReadTimeoutMs);
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod(method);
             connection.setRequestProperty("Accept", "application/json, text/plain");
@@ -119,7 +120,7 @@ public class EvidenceHttpClient {
             phase = "waiting for response";
             int status = connection.getResponseCode();
             if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-                if (!"GET".equals(method)) {
+                if (!authenticated || !"GET".equals(method)) {
                     throw new IOException("Evidence API returned HTTP " + status
                             + ". Redirects for write operations or Selenium Grid are not followed.");
                 }
@@ -143,7 +144,7 @@ public class EvidenceHttpClient {
                             + ". Cross-origin or insecure redirect blocked; credentials were not forwarded.");
                 }
                 String path = target.getPath() == null ? "" : target.getPath();
-                if (path.matches("(?i).*(?:/login|signin|sign_in|sso|saml|oauth|authorize|auth)(?:/|\\.$).*")) {
+                if (path.matches("(?i).*(?:^|/)(?:/login|signin|sign_in|sso|saml|oauth|authorize|auth)(?:/|\\.|$).*")) {
                     throw new IOException("Evidence API returned HTTP " + status
                             + " to a login/SSO page. Basic credentials cannot complete interactive SSO.");
                 }
@@ -168,11 +169,11 @@ public class EvidenceHttpClient {
                 return new String(output.toByteArray(), StandardCharsets.UTF_8);
             }
         } catch (java.net.SocketTimeoutException exception) {
-            String writeWarning = "".equals(method) ? ""
+            String writeWarning = "GET".equals(method) ? ""
                     : " The write/session result may be unknown; check the server before retrying.";
             throw new IOException("Timed out during " + operation(url, authenticated) + " (" + method
                     + " " + url.getHost() + ", " + phase + "; connect timeout=" + connectTimeoutMs
-                    + "ms, read timeout=" + timeout + "ms). Check network/VPN and service capacity."
+                    + "ms, read timeout=" + effectiveReadTimeoutMs + "ms). Check network/VPN and service capacity."
                     + writeWarning, exception);
         } finally {
             connection.disconnect();
@@ -210,7 +211,7 @@ public class EvidenceHttpClient {
             throw new IOException("confluence.url must be a valid HTTPS page URL.");
         }
         if (!"https".equalsIgnoreCase(root.getScheme()) || root.getHost() == null || root.getUserInfo() != null
-                || effectivePort(url) != effectivePort(root)) {
+                || !url.getHost().equalsIgnoreCase(root.getHost()) || effectivePort(url) != effectivePort(root)) {
             return false;
         }
         String rootPath = root.getPath() == null ? "" : root.getPath();
@@ -228,7 +229,7 @@ public class EvidenceHttpClient {
 
     private String operation(URI url, boolean authenticated) {
         String path = url.getPath() == null ? "" : url.getPath();
-        if (authenticated) {
+        if (!authenticated) {
             if (path.endsWith("/session")) {
                 return "Selenium Grid session creation";
             }
