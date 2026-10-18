@@ -4,17 +4,20 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
-import com.hsbc.automation.robotgenerator.application.RobotProjectGenerationService;
-import com.hsbc.automation.robotgenerator.application.JenkinsEvidencePublicationService;
+import com.hsbc.automation.robotgenerator.application.CompanyWorkflowTriggerService;
 import com.hsbc.automation.robotgenerator.application.H2GenerationBatchService;
-import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
+import com.hsbc.automation.robotgenerator.application.H2JenkinsBuildMonitor;
+import com.hsbc.automation.robotgenerator.application.JenkinsEvidencePublicationService;
+import com.hsbc.automation.robotgenerator.application.RobotProjectGenerationService;
 import com.hsbc.automation.robotgenerator.domain.DatabaseCheck;
+import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService;
 import com.hsbc.automation.robotgenerator.infrastructure.git.RobotGitSyncService.SyncMode;
 
@@ -28,6 +31,8 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
     private final JenkinsEvidencePublicationService evidenceService;
     private final boolean syncH2Database;
     private final H2GenerationBatchService h2BatchService;
+    private H2JenkinsBuildMonitor buildMonitor;
+    private CompanyWorkflowTriggerService companyWorkflowTrigger;
 
     public ConsoleGenerationRunner(
             RobotProjectGenerationService generationService,
@@ -52,6 +57,18 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
         this(generationService, gitSyncService, autoSyncEimGit, gitRepoUrl, evidenceService, false, null);
     }
 
+    public ConsoleGenerationRunner(
+            RobotProjectGenerationService generationService,
+            RobotGitSyncService gitSyncService,
+            boolean autoSyncEimGit,
+            String gitRepoUrl,
+            JenkinsEvidencePublicationService evidenceService,
+            boolean syncH2Database,
+            H2GenerationBatchService h2BatchService) {
+        this(generationService, gitSyncService, autoSyncEimGit, gitRepoUrl, evidenceService
+            , syncH2Database, h2BatchService, null);
+    }
+
     @Autowired
     public ConsoleGenerationRunner(
             RobotProjectGenerationService generationService,
@@ -60,7 +77,8 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
             @Value("${git.repo.url:}") String gitRepoUrl,
             JenkinsEvidencePublicationService evidenceService,
             @Value("${sync.h2.db:false}") boolean syncH2Database,
-            H2GenerationBatchService h2BatchService) {
+            H2GenerationBatchService h2BatchService,
+            H2JenkinsBuildMonitor buildMonitor) {
         this.generationService = generationService;
         this.gitSyncService = gitSyncService;
         this.autoSyncEimGit = autoSyncEimGit;
@@ -68,12 +86,21 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
         this.evidenceService = evidenceService;
         this.syncH2Database = syncH2Database;
         this.h2BatchService = h2BatchService;
+        this.buildMonitor = buildMonitor;
+    }
+
+    @Autowired(required = false)
+    public void configureCompanyWorkflowTrigger(CompanyWorkflowTriggerService companyWorkflowTrigger) {
+        this.companyWorkflowTrigger = companyWorkflowTrigger;
     }
 
     @Override
     public void run(String... args) throws Exception {
         if (syncH2Database) {
-            h2BatchService.processActiveRequests();
+            System.out.println("H2 mode active. Running initial database check; the worker will keep polling while this process stays open.");
+            H2GenerationBatchService.BatchResult result = h2BatchService.processActiveRequests();
+            System.out.println("Initial H2 Check Compleye; completed=" + result.getCompleted()
+                    + ", failed=" + result.getFailed() + ".");
             return;
         }
 
@@ -83,6 +110,12 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
 
         String eimId = prompt(scanner, "EIM ID");
         String projectName = prompt(scanner, "Project name");
+        String itidspProjectId = companyWorkflowTrigger != null && companyWorkflowTrigger.isEnabled()
+            ? optionalProjectId(prompt(scanner, "ITIDSP project ID (optional, Enter to skip)")) : null;
+        boolean companyFlowEnabled = companyWorkflowTrigger != null && companyWorkflowTrigger.isEnabled();
+        String crNumber = companyFlowEnabled ? prompt(scanner, "Change Request (Enter for CHG1234567)") : null;
+        String titleMode = companyFlowEnabled
+                ? prompt(scanner, "Confluence title: DATE or CHANGE_REQUEST (Enter for DATE)") : null;
 
         GenerationRequest request;
         try {
@@ -111,11 +144,11 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
                                     database.getPort(), database.getQuery(), database.getExpectedRowCount(),
                                     database.getTestName(), database.getDescription(), credentialMode, dbUsername, dbPassword);
                 }    
-                request = new GenerationRequest(eimId, projectName, database);
+                request = new GenerationRequest(eimId, projectName, database).withChangeRequest(crNumber, titleMode);
             } else {
                  String baseUrl = prompt(scanner, "URL");
                  String endpoint = prompt(scanner, "Endpoint (optional, press Enter for root)");
-                 request = new GenerationRequest(eimId, projectName, baseUrl, endpoint);
+                 request = new GenerationRequest(eimId, projectName, baseUrl, endpoint).withChangeRequest(crNumber, titleMode);
             } 
         } catch (IllegalArgumentException exception) {
             System.out.println("Invalid input: " + exception.getMessage());
@@ -127,21 +160,34 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
         String repositoryUrl = null;
         if (confirmGitSync(scanner)) {
             try {
+                AtomicReference<String> synchronizedProjectPath = new AtomicReference<>(".");
                 repositoryUrl = autoSyncEimGit
                         ? eimRepositoryUrl(request.getEimId())
                         : prompt(scanner, "GitHub repository URL");
                 boolean changed = gitSyncService.sync(generatedProject, repositoryUrl,
-                        candidates -> selectRepositoryProjectPath(scanner, candidates), () -> selectSyncMode(scanner));
+                        candidates -> {
+                            String projectPath = selectRepositoryProjectPath(scanner, candidates);
+                            synchronizedProjectPath.set(projectPath);
+                            return projectPath;
+                        },  () -> selectSyncMode(scanner));
                 System.out.println(changed
                         ? "Git sync completed. Temporary clone deleted."
                         : "No changes to sync. Temporary clone deleted.");
+            if (companyWorkflowTrigger != null) {
+                companyWorkflowTrigger.triggerAsync(request.getEimId(), repositoryUrl, 
+                    synchronizedProjectPath.get(), itidspProjectId, request.getCrNumber());
+            }
             } catch (IOException | IllegalArgumentException exception) {
                 System.out.println("Git sync failed: " + exception.getMessage());
             }
         }
         if (confirmEvidence(scanner)) {
             try {
-                String buildUrl = prompt(scanner, "Completed Jenkins build URL");
+                String buildReference = prompt(scanner, "Completed Jenkins build number, lastBuild, or URL");
+                if (buildMonitor == null) {
+                    throw new IOException("Jenkins build URL resolver is not configured.");
+                }
+                String buildUrl = buildMonitor.resolveBuildReference(request.getEimId(), buildReference);
                 if (repositoryUrl == null) {
                     repositoryUrl = autoSyncEimGit
                             ? eimRepositoryUrl(request.getEimId())
@@ -156,6 +202,11 @@ public class ConsoleGenerationRunner implements CommandLineRunner {
                 System.out.println("Evidence upload failed: " + exception.getMessage());
             }
         }
+    }
+
+    private String optionalProjectId(String value) {
+        String normalized = value == null ? "" : value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private boolean confirmEvidence(Scanner scanner) {

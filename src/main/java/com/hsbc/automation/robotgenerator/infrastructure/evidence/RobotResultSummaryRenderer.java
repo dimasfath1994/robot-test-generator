@@ -56,6 +56,8 @@ public class RobotResultSummaryRenderer {
             graphics.setColor(Color.WHITE);
             graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
             graphics.setColor(new Color(30, 90, 65));
+            graphics.fillRect(0, 0, image.getWidth(), 76);
+            graphics.setColor(Color.WHITE);
             graphics.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 28));
             graphics.drawString("Regression Test Summary", 44, 49);
             graphics.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 20));

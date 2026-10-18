@@ -3,8 +3,6 @@ package com.hsbc.automation.robotgenerator.domain;
 import java.net.URI;
 import java.net.URISyntaxException;
 
-import javax.xml.crypto.Data;
-
 public final class GenerationRequest {
 
     private final String eimId;
@@ -12,6 +10,24 @@ public final class GenerationRequest {
     private final String baseUrl;
     private final String endpoint;
     private final DatabaseCheck databaseCheck;
+    private String crNumber = "CHG1234567";
+    private String confluenceTitleMode = "DATE";
+
+    public GenerationRequest withChangeRequest(String crNumber, String titleMode) {
+        GenerationRequest copy = isDatabaseCheck()
+                ? new GenerationRequest(eimId, projectName, databaseCheck)
+                : new GenerationRequest(eimId, projectName, baseUrl, endpoint);
+        copy.crNumber = crNumber == null || crNumber.trim().isEmpty() ? "CHG1234567" : crNumber.trim();
+        copy.confluenceTitleMode = titleMode == null || titleMode.trim().isEmpty()
+                ? "DATE" : titleMode.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!"DATE".equals(copy.confluenceTitleMode) && !"CHANGE_REQUEST".equals(copy.confluenceTitleMode)) {
+            throw new IllegalArgumentException("Confluence title mode must be DATE or CHANGE_REQUEST");
+        }
+        return copy;
+    }
+
+    public String getCrNumber() { return crNumber; }
+    public String getConfluenceTitleMode() { return confluenceTitleMode; }
 
     public GenerationRequest(String eimId, String projectName, String baseUrl, String endpoint) {
         this.eimId = requireText(eimId, "EIM ID");

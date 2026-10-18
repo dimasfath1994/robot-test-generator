@@ -37,6 +37,9 @@ public final class DatabaseCheck {
         this.description = text(description, "Test case description");
         this.credentialMode = credentialMode == null || credentialMode.trim().isEmpty()
                 ? "ENV" : credentialMode.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!"ENV".equals(this.credentialMode) && !"LITERAL".equals(this.credentialMode)) {
+            throw new IllegalArgumentException("DB Credential mode must be ENV or LITERAL");
+        }
         if ("ENV".equals(this.credentialMode)) {
             this.username = environmentName(username, "DB_USERNAME");
             this.password = environmentName(password, "DB_PASSWORD");

@@ -36,6 +36,7 @@ public class H2GenerationBatchService {
     private final RobotGitSyncService gitSyncService;
     private final JenkinsEvidencePublicationService evidenceService;
     private H2JenkinsBuildMonitor buildMonitor;
+    private CompanyWorkflowTriggerService companyWorkflowTrigger;
     private long pollIntervalMs = 30000;
     private long timeoutMs = 7200000;
     Clock clock = Clock.systemUTC();
@@ -51,6 +52,11 @@ public class H2GenerationBatchService {
                                 this.pollIntervalMs = pollIntervalMs;
                                 this.timeoutMs = timeoutMs;
                               }
+    
+    @Autowired(required = false)
+    public void configureCompanyWorkflowTrigger(CompanyWorkflowTriggerService companyWorkflowTriggerService) {
+        this.companyWorkflowTrigger = companyWorkflowTriggerService;
+    }
 
     public H2GenerationBatchService(
             @Value("${sync.h2.jdbc-url:jdbc:h2:file:./data/robot-generator}") String jdbcUrl,
@@ -112,24 +118,53 @@ public class H2GenerationBatchService {
                 record.dbQuery, record.expectedRowCount, record.dbTestName, record.dbDescription,
                 record.dbCredentialMode, record.dbUsername, record.dbPassword))
             : new GenerationRequest(record.eimId, record.projectName, record.baseUrl, record.endpoint);
+        request = request.withChangeRequest(record.crNumber, record.confluenceTitleMode);
         String repositoryUrl = record.resolvedRepositoryUrl;
         if ("PENDING".equals(record.processStatus)) {
             repositoryUrl = repositoryUrl(record);
+            long lastBuildBaseline = 0;
+            if ("lastBuild".equalsIgnoreCase(record.jenkinsBuildUrl == null ? "" : record.jenkinsBuildUrl.trim())) {
+                if (buildMonitor == null) {
+                    throw new IOException("H2 Jenkins build monitor is not configured.");
+                }
+                lastBuildBaseline = buildMonitor.latestBuildNumber(record.eimId);
+            }
             String projectPath = record.gitProjectPath == null || record.gitProjectPath.trim().isEmpty()
                     ? "." : record.gitProjectPath.trim();
             SyncMode mode = syncMode(record.gitSyncMode);
             Path generatedProject = generationService.generate(request);
             gitSyncService.sync(generatedProject, repositoryUrl, candidates -> projectPath, () -> mode);
             try (Connection connection = connect(); PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE " + TABLE + " SET process_status = 'WAITING_JENKINS', resolved_git_url = ? WHERE id = ?")) {
+                    "UPDATE " + TABLE + " SET process_status = 'WAITING_JENKINS', resolved_git_url = ?, "
+                   + "last_build_baseline = ?  WHERE id = ?")) {
                         statement.setString(1, repositoryUrl);
-                        statement.setLong(2, record.id);
+                        statement.setLong(2, lastBuildBaseline);
+                        statement.setLong(3, record.id);
                         statement.executeUpdate();
             }
+            if (companyWorkflowTrigger != null) {
+                companyWorkflowTrigger.triggerAsync(record.eimId, repositoryUrl, projectPath,
+                        record.itidspProjectId, request.getCrNumber());
+            }
             System.out.println("H2 request " + record.id + " waiting for Jenkins; set JENKINS_BUILD_URL after running the company web workflow.");
-
+            if ("lastBuild".equalsIgnoreCase(record.jenkinsBuildUrl == null ? "" : record.jenkinsBuildUrl.trim())) {
+                return false;
+            }
         }
-        String buildUrl = record.trackedBuildUrl == null ? record.jenkinsBuildUrl : record.trackedBuildUrl;
+        String buildUrl = record.trackedBuildUrl;
+        if (buildUrl == null && record.jenkinsBuildUrl != null && !record.jenkinsBuildUrl.trim().isEmpty()) {
+            String buildReference = record.jenkinsBuildUrl.trim();
+            if ("lastBuild".equalsIgnoreCase(buildReference)) {
+                long latest = buildMonitor.latestBuildNumber(record.eimId);
+                if (latest <= record.lastBuildBaseline) {
+                    return false;
+                }
+                buildUrl = buildMonitor.numberedBuildUrl(record.eimId, latest);
+            } else {
+                buildUrl = buildMonitor.resolveBuildReference(record.eimId, buildReference);
+            }
+            updateWaiting(record.id, "WAITING_JENKINS", 0, buildUrl);
+        }
         if (buildUrl == null || buildUrl.trim().isEmpty()) {
             return false;
         }
@@ -199,7 +234,8 @@ public class H2GenerationBatchService {
             createTable(connection);
             String sql = "SELECT id, eim_id, project_name, base_url, endpoint, git_repository_url, "
                     + "git_project_path, git_sync_mode, jenkins_build_url, process_status, resolved_git_url, "
-                    + "wait_started_at, tracked_build_url, is_db, db_module_name, db_name, db_host, db_port, "
+                    + "itidsp_project_id, cr_number, confluence_title_mode, "
+                    + "wait_started_at, tracked_build_url, last_build_baseline, is_db, db_module_name, db_name, db_host, db_port, "
                     + "db_query, expected_row_count, db_test_case_name, db_test_case_description, "
                     + "db_credential_mode, db_username, db_password "
                     + "FROM " + TABLE + " WHERE is_active = TRUE AND process_status IN ('PENDING', 'WAITING_JENKINS', 'RUNNING', 'PUBLISHING') "
@@ -239,7 +275,8 @@ public class H2GenerationBatchService {
                 + "git_repository_url VARCHAR(2048), "
                 + "git_project_path VARCHAR(1024) DEFAULT '.', "
                 + "git_sync_mode VARCHAR(20) DEFAULT 'OVERWRITE', "
-                + "jenkins_build_url VARCHAR(2048))";
+                + "jenkins_build_url VARCHAR(2048), "
+                + "itidsp_project_id VARCHAR(255))";
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
             statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN jenkins_build_url DROP NOT NULL");
@@ -247,8 +284,12 @@ public class H2GenerationBatchService {
             statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS resolved_git_url VARCHAR(2048)");
             statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS wait_started_at BIGINT DEFAULT 0 NOT NULL");
             statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS tracked_build_url VARCHAR(2048)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS last_build_baseline BIGINT DEFAULT 0 NOT NULL");
             statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS next_check_at BIGINT DEFAULT 0 NOT NULL");
             statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS last_error VARCHAR(4000)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS itidsp_project_id VARCHAR(255)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS cr_number VARCHAR(255)");
+            statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS confluence_title_mode VARCHAR(32) DEFAULT 'DATE'");
             statement.execute("ALTER TABLE " + TABLE + " ALTER COLUMN base_url DROP NOT NULL");
             statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS is_db BOOLEAN DEFAULT FALSE NOT NULL");
             statement.execute("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS db_module_name VARCHAR(100) DEFAULT 'pymssql'");
@@ -273,12 +314,16 @@ public class H2GenerationBatchService {
         private final String endpoint;
         private final String gitRepositoryUrl;
         private final String gitProjectPath;
+        private final String itidspProjectId;
+        private final String crNumber;
+        private final String confluenceTitleMode;
         private final String gitSyncMode;
         private final String jenkinsBuildUrl;
         private final String processStatus;
         private final String resolvedRepositoryUrl;
         private final long waitStartedAt;
         private final String trackedBuildUrl;
+        private final long lastBuildBaseline;
         private final boolean isDb;
         private final String dbModule;
         private final String dbName;
@@ -300,12 +345,16 @@ public class H2GenerationBatchService {
             this.endpoint = result.getString("endpoint");
             this.gitRepositoryUrl = result.getString("git_repository_url");
             this.gitProjectPath = result.getString("git_project_path");
+            this.itidspProjectId = result.getString("itidsp_project_id");
+            this.crNumber = result.getString("cr_number");
+            this.confluenceTitleMode = result.getString("confluence_title_mode");
             this.gitSyncMode = result.getString("git_sync_mode");
             this.jenkinsBuildUrl = result.getString("jenkins_build_url");
             this.processStatus = result.getString("process_status");
             this.resolvedRepositoryUrl = result.getString("resolved_git_url");
             this.waitStartedAt = result.getLong("wait_started_at");
             this.trackedBuildUrl = result.getString("tracked_build_url");
+            this.lastBuildBaseline = result.getLong("last_build_baseline");
             this.isDb = result.getBoolean("is_db");
             this.dbModule = result.getString("db_module_name");
             this.dbName = result.getString("db_name");

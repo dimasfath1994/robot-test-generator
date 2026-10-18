@@ -1,0 +1,15 @@
+requests
+robotframework
+robotframework-appiumlibrary
+robotframework-requests
+robotframework-seleniumlibrary
+xlrd
+xlutils
+xlwt
+numpy
+opencv-python-headless
+Appium-Python-Client
+pytz
+allure-robotframework
+selenium
+cryptography

@@ -1,10 +1,10 @@
 package com.hsbc.automation.robotgenerator.infrastructure.template;
 
 import java.net.URI;
+
 import org.springframework.stereotype.Component;
+
 import com.hsbc.automation.robotgenerator.domain.GenerationRequest;
-
-
 import com.hsbc.automation.robotgenerator.domain.DatabaseCheck;
 
 @Component
